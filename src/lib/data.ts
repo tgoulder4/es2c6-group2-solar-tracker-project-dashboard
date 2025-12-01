@@ -1,23 +1,21 @@
 
-import type { TrackerData } from "./types";
+import type { ReceivedData, TrackerData } from "./types";
 
-async function fetchData(espIp: string) {
+async function fetchData(espIp: string): Promise<ReceivedData | null> {
     //fetch request to esp-ip/data
+    const res = await fetch("http://" + espIp + "/data");
     try {
-        const res = await fetch("http://" + espIp + "/data");
         if (res.ok) {
             const bodyText = await res.text();
-            console.log("bodyText: " + bodyText);
-            const bodyJson = JSON.parse(bodyText);
-            console.log("bodyJson: " + bodyJson);
-            return bodyJson as TrackerData
-        } else {
-            console.error("res was not OK");
-            return false;
+            console.log("bodyText: " + JSON.stringify(bodyText));
+            const bodyJson: ReceivedData = JSON.parse(bodyText);
+            console.log("bodyJson: " + JSON.stringify(bodyJson));
+            return { ...bodyJson as ReceivedData };
         }
+        return null;
     } catch (e) {
         console.error(e);
-        return false;
+        return null;
     }
 }
 

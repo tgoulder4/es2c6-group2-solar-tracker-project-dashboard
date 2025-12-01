@@ -4,7 +4,7 @@ import './App.css'
 import ConnectionDialog from './components/connectionDialog';
 import { Circle, Loader2 } from 'lucide-react';
 import { Button } from './components/ui/button';
-import type { TrackerData } from './lib/types';
+import type { ReceivedData, TrackerData, TrackerState } from './lib/types';
 import SolarTrackerModel from './components/solarTrackerModel';
 import TrackerInfo from './components/TrackerInfo';
 import { fetchData } from './lib/data';
@@ -12,16 +12,20 @@ import { getAveragesAndDiffs, getChanges, setChanges } from './lib/callChanges';
 import Statistic from './components/statistic';
 import BatteryGauge from 'react-battery-gauge';
 import GaugeComponent from 'react-gauge-component';
+import LDR from './components/LDR';
+import { REFRESH_TIME } from './lib/constants';
+import { getTrackerState } from './lib/ldrInterpretation';
 
 function App() {
   const [audrinoIP, setAudrinoIP] = useState("");
   const [connectionDialogIsOpen, setConnectionDialogIsOpen] = useState(false);
   const [error, setError] = useState("");
   const [refreshing, setRefreshing] = useState(false);
-  const [data, setData] = useState<TrackerData & { connectionState: string }>({
-    batteryPercentage: 0, ePos: 0, ldrValues: [0, 0, 0, 0], rPos: 0, solarVoltage: 0, connectionState: 'Not Connected'
-  })
-  const connected = data.connectionState !== 'Not Connected' && data.connectionState !== 'Connecting'
+  const [minLDR, setMinLDR] = useState(0);
+  const [maxLDR, setMaxLDR] = useState(10);
+  const [uiState, setUiState] = useState<'Connecting' | 'Connected' | 'Disconnected' | 'Not Connected'>('Not Connected');
+  const [trackerState, setTrackerState] = useState<TrackerState | null>(null);
+
 
   useEffect(() => {
     if (audrinoIP == "") {
@@ -30,29 +34,56 @@ function App() {
   }, []);
 
   useEffect(() => {
+    //calculate the minimum and maximum LDR values for correct colour scales: with dark being the minimum value and yellow being the maximum value ONLY if the difference is greater than the threshold
+    // it will be moving if the diff is > threshold
+    if (!trackerState) { console.warn("trackerState is falsy so min and max couldn't be computed for visuals."); }
+    if (trackerState) {
+      setMinLDR(Math.min(...trackerState?.ldrValues || []));
+      setMaxLDR(Math.max(...trackerState?.ldrValues || []));
+    } else {
+      setMinLDR(0);
+      setMaxLDR(10);
+    }
+  })
+  useEffect(() => {
     async function track() {
-      const res = await fetchData(audrinoIP);
-      if (res) {
-        const avgAndDiff = getAveragesAndDiffs(data.ldrValues);
-        setData({ ...data, connectionState: 'Connected' });
-        const changes = getChanges({ ...avgAndDiff, ePos: data.ePos, rPos: data.rPos });
-        await setChanges(audrinoIP, changes);
+      let state: TrackerState;
+      const received = await fetchData(audrinoIP);
+      if (received) {
+        //lets set the current state
+        const newData = parseTrackerData(received);
+        state = getTrackerState(newData);
+        setTrackerState({ ...state });
 
         if (connectionDialogIsOpen) { setConnectionDialogIsOpen(false); };
+
+        //now lets get and call the changes
+        const changes = getChanges(state);
+        await setChanges(audrinoIP, changes);
+
       } else {
-        setData({
-          ...data, connectionState: 'Not Connected'
-        })
-      }
+        if (trackerState) {
+          if (
+            uiState == "Connected"
+          ) {
+            setUiState('Disconnected');
+          } else if (uiState == "Connecting" || uiState == "Disconnected") {
+            setUiState('Not Connected');
+          }
+        }
+      };
     };
-    setTimeout(() => {
+    const id = setInterval(() => {
       if (audrinoIP) {
         setRefreshing(true);
         track().then(() => {
           setRefreshing(false);
         })
       }
-    }, 1000);
+    }, REFRESH_TIME);
+    return (() => {
+      clearInterval(id);
+    })
   }, [audrinoIP]);
 
   function handleOpenChange(open: boolean) {
@@ -73,24 +104,30 @@ function App() {
 
   async function handleSetAudrinoIp(ip: string) {
     //make an attempt to connect
-    setData({ ...data, connectionState: 'Connecting...' });
-    const res = await fetchData(audrinoIP);
-    if (res) {
-      setAudrinoIP(ip);
-      setConnectionDialogIsOpen(false);
-      setData({ ...data, connectionState: 'Connected' });
-    } else {
-      setError("Couldn't connect to that IP.");
-      setData({ ...data, connectionState: 'Not Connected' });
+    setUiState('Connecting');
+    try {
+      const received = await fetchData(ip);
+      if (received) {
+        setAudrinoIP(ip);
+        setConnectionDialogIsOpen(false);
+        setUiState('Connected');
+      } else {
+        setError("Couldn't connect to that IP.");
+      }
+    } catch (e) {
+      setError(String(e));
+      setUiState('Not Connected');
     }
   }
-  function parseTrackerData(tr: any): TrackerData {
+
+  function parseTrackerData(received: ReceivedData): TrackerData {
+    console.log("parsetracker" + JSON.stringify(received))
     return ({
-      ldrValues: [tr.ldr1, tr.ldr2, tr.ldr3, tr.ldr4],
-      solarVoltage: tr.solarV,
-      batteryPercentage: tr.batteryPerc,
-      ePos: tr.ePos,
-      rPos: tr.rPos,
+      ldrValues: [received.ldr1, received.ldr2, received.ldr3, received.ldr4],
+      solarVoltage: received.solarV,
+      batteryPercentage: received.batteryPerc,
+      ePos: received.ePos,
+      rPos: received.rPos,
     })
   }
 
@@ -111,7 +148,7 @@ function App() {
             <div className="time"></div>
             <div className="flex gap-2 mb-4">
               {
-                !connected ? <Button onClick={() => {
+                uiState !== 'Connected' ? <Button onClick={() => {
                   setConnectionDialogIsOpen(true);
                 }}>Enter Audrino IP</Button> : <>
                   <Button variant={'outline'} onClick={() => handleSearch()}>Search for source</Button>
@@ -125,54 +162,31 @@ function App() {
 
         <div className="bg-gray-200 h-full w-[1px] rounded-full"></div>
         <div className="rhs flex-2 flex flex-col items-start justify-between gap-8 pl-10">
-          <div className="grid gap-4 grid-rows-2 grid-cols-2 w-[50%] min-w-48 max-w-80 aspect-square">
-            <div className="ldr relative">
-              <Circle fill={`${connected ? "transparent" : "#e5e7eb"}`} className={`grid place-items-center w-full h-full stroke-2 stroke-gray-600 ${!connected && "stroke-gray-200 animate animate-pulse"}`} opacity={"10%"}>{data?.ldrValues[0] || ""}
-                <GaugeComponent
-                  type="grafana"
-                  className='absolute'
-                  arc={{
-                    colorArray: ['#00FF15', '#FF2121'],
-                    padding: 0.02,
-                    subArcs:
-                      [
-                        { limit: 40 },
-                        { limit: 60 },
-                        { limit: 70 },
-                        {},
-                        {},
-                        {},
-                        {}
-                      ]
-                  }}
-                  pointer={{ type: "blob", animationDelay: 0 }}
-                  style={{ width: '20vw', height: '20vw' }}
-                  value={50}
-                />
-              </Circle>
-            </div>
-            <Circle fill={`${connected ? "transparent" : "#e5e7eb"}`} className={`w-full h-full stroke-2 stroke-gray-600 ${!connected && "stroke-gray-200 animate animate-pulse"}`} opacity={"10%"}>{data?.ldrValues[1] || ""}</Circle>
-            <Circle fill={`${connected ? "transparent" : "#e5e7eb"}`} className={`w-full h-full stroke-2 stroke-gray-600 ${!connected && "stroke-gray-200  animate animate-pulse"}`} opacity={"10%"}>{data?.ldrValues[2] || ""}</Circle>
-            <Circle fill={`${connected ? "transparent" : "#e5e7eb"}`} className={`w-full h-full stroke-2 stroke-gray-600 ${!connected && "stroke-gray-200  animate animate-pulse"}`} opacity={"10%"}>{data?.ldrValues[3] || ""}</Circle>
+          <div className="grid gap-4 grid-rows-2 grid-cols-2 w-[50%] min-w-48 max-w-64 aspect-square">
+            <LDR s={trackerState} minLDR={minLDR} maxLDR={maxLDR} value={trackerState?.ldrValues[0] || 0} />
+            <LDR s={trackerState} minLDR={minLDR} maxLDR={maxLDR} value={trackerState?.ldrValues[1] || 0} />
+            <LDR s={trackerState} minLDR={minLDR} maxLDR={maxLDR} value={trackerState?.ldrValues[2] || 0} />
+            <LDR s={trackerState} minLDR={minLDR} maxLDR={maxLDR} value={trackerState?.ldrValues[3] || 0} />
+
           </div>
 
           <div className="flex flex-col justify-end flex-3 w-full description text-left">
             <div className="flex justify-between items-end mb-6">
               <div className="flex">
                 {refreshing && <Loader2 className='animate animate-spin text-gray-400' />}
-                <h1 className="status text-5xl font-bold">{data.connectionState == "Connected" ? "Tracking" : data.connectionState}</h1>
+                <h1 className="status text-5xl font-bold">{uiState == "Connected" ? trackerState?.status : uiState}</h1>
               </div>
               <h2 className='text-xl text-gray-500'>
-                Stats: eDiff,rDiff
+                δe: {trackerState?.eDiff}, δr: {trackerState?.rDiff}
               </h2>
             </div>
             <div className="h-px w-full bg-gray-200 mb-8"></div>
-            <div className="flex flex-row gap-8 bg-gray-100 rounded-md gap-16 p-8 pl-16 pr-64 text-2xl">
-              <Statistic loading={data.connectionState !== "Connected"} value={10} unit='V' name='Solar Cell' />
+            <div className="flex flex-row gap-8 bg-gray-100 rounded-md gap-16 p-8 pl-16 pr-[2vw] text-2xl items-center h-40">
+              <Statistic loading={uiState !== "Connected"} value={2} unit='V' name='Solar Cell' />
               <div className="w-px h-full bg-gray-300"></div>
-              <Statistic loading={data.connectionState !== "Connected"} value={10} unit='J' name='Energy Generated' />
+              <Statistic loading={uiState !== "Connected"} value={10} unit='J' name='Energy Generated' />
               <div className="w-px h-full bg-gray-300"></div>
-              <Statistic loading={data.connectionState !== "Connected"} value={62} unit='' name='Adjustments Made' />
+              <Statistic loading={uiState !== "Connected"} value={32} unit='' name='Adjustments Made' />
             </div>
           </div>
         </div>

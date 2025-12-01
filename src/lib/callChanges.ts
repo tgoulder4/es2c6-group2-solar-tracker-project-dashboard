@@ -1,18 +1,21 @@
 import type { AvgAndDiff, TrackerData, TrackerState } from "./types";
 
-export function getChanges(props: { eDiff: number, ePos: number, rDiff: number, rPos: number }) {
-    const { eDiff, ePos, rDiff, rPos } = props;
-    let changes: any = {};
+export function getChanges(s: TrackerState): {
+    newEPos?: number | undefined;
+    newRPos?: number | undefined;
+} {
+    const { eDiff, ePos, rDiff, rPos } = s;
+    let changes: { newEPos?: number, newRPos?: number } = {};
     if (eDiff > 0 && ePos < 180) {
-        changes['ePos'] = ePos + 5;
+        changes['newEPos'] = ePos + 5;
     } else if (eDiff < 0 && ePos > -180) {
-        changes['ePos'] = ePos - 5;
+        changes['newEPos'] = ePos - 5;
     }
 
     if (rDiff > 0 && rPos < 180) {
-        changes['rPos'] = rPos + 5;
+        changes['newRPos'] = rPos + 5;
     } else if (rDiff < 0 && rPos > -180) {
-        changes['rPos'] = rPos - 5;
+        changes['newRPos'] = rPos - 5;
     }
     console.log("deltas: ePos: " + ePos + ", rPos: " + rPos);
     return changes;
@@ -35,20 +38,20 @@ export function getAveragesAndDiffs(ldrValues: TrackerData['ldrValues']): AvgAnd
     return { avgTop, avgBottom, avgLeft, avgRight, avgSum, eDiff, rDiff }
 }
 
-export async function setChanges(ip: string, changes: Pick<TrackerState, 'ePos' | 'rPos'>) {
+export async function setChanges(ip: string, changes: { newEPos?: number, newRPos?: number }) {
     let url = "http://" + ip + "/set";
-    if (changes.ePos) {
-        url = url + '?e=' + changes.ePos;
-        if (changes.rPos) {
-            url = url + '&r=' + changes.rPos;
+    if (changes.newEPos) {
+        url = url + '?e=' + changes.newEPos;
+        if (changes.newRPos) {
+            url = url + '&r=' + changes.newRPos;
         }
     } else {
-        if (changes.rPos) {
-            url = url + '?r=' + changes.rPos;
+        if (changes.newRPos) {
+            url = url + '?r=' + changes.newRPos;
         }
     }
     console.log("url: " + url);
-    if (changes.ePos) {
+    if (changes.newEPos) {
         const res = await fetch(url);
         if (!res.ok) {
             console.error("res was not OK");

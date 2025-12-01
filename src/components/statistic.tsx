@@ -26,7 +26,7 @@ function Statistic({ value, unit, name, loading }: Props) {
             {loading ?
                 <div className="w-[100px] h-[20px] bg-gray-200 animate animate-pulse rounded-md"></div>
                 :
-                <div className="solar-v">{name}</div>
+                <p className="solar-v text-xl">{name}</p>
             }
 
         </div>
