@@ -9,6 +9,7 @@ import SolarTrackerModel from './components/solarTrackerModel';
 import TrackerInfo from './components/TrackerInfo';
 import { fetchData } from './lib/data';
 import { getAveragesAndDiffs, getChanges, setChanges } from './lib/callChanges';
+import Statistic from './components/statistic';
 
 function App() {
   const [audrinoIP, setAudrinoIP] = useState("");
@@ -92,7 +93,7 @@ function App() {
           </div>
           <div className="flex flex-col gap-4 w-full items-start">
             <div className="time"></div>
-            <div className="flex gap-2">
+            <div className="flex gap-2 mb-4">
               <Button variant={'outline'} onClick={() => handleSearch()}>Search for source</Button>
               <Button variant={'outline'} onClick={() => handleResetToSunrise()}>Reset to sunrise</Button>
             </div>
@@ -110,11 +111,19 @@ function App() {
           </div>
 
           <div className="flex flex-col justify-end flex-3 w-full description text-left">
-            <h1 className="status text-3xl font-bold mb-4">Tracking</h1>
+            <div className="flex justify-between">
+              <h1 className="status text-3xl font-bold mb-4">{!data?.ldrValues ? "Connecting..." : "Tracking"}</h1>
+              <h2 className='text-xl text-gray-500'>
+                Stats: eDiff,rDiff
+              </h2>
+            </div>
             <div className="h-px w-full bg-gray-200 mb-4"></div>
-            <div className="flex flex-row gap-8 bg-gray-50 rounded-md p-4 py-8">
-
-              <div className="solar-v">Solar V</div>
+            <div className="flex flex-row gap-8 bg-gray-100 rounded-md gap-16 p-8 pl-16 pr-64 text-2xl">
+              <Statistic value={10} unit='V' name='Solar Cell' />
+              <div className="w-px h-full bg-gray-300"></div>
+              <Statistic value={10} unit='J' name='Energy Generated' />
+              <div className="w-px h-full bg-gray-300"></div>
+              <Statistic value={62} unit='' name='Adjustments Made' />
             </div>
           </div>
         </div>
