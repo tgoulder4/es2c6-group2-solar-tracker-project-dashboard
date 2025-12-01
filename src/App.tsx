@@ -110,9 +110,9 @@ function App() {
           </div>
 
           <div className="flex flex-col justify-end flex-3 w-full description text-left">
-            <h1 className="status text-3xl font-bold mb-4">Status</h1>
+            <h1 className="status text-3xl font-bold mb-4">Tracking</h1>
             <div className="h-px w-full bg-gray-200 mb-4"></div>
-            <div className="flex flex-row gap-8 bg-gray-100 rounded-md p-4">
+            <div className="flex flex-row gap-8 bg-gray-50 rounded-md p-4 py-8">
 
               <div className="solar-v">Solar V</div>
             </div>
