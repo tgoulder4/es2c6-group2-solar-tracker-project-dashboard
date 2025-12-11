@@ -1,28 +1,25 @@
-
-#include <ArduinoJson.h>
+// include servo library
 #include <Servo.h>
-
-// HC4051 mp(12, 13, 14); //guess: GPIO
+// // create servo object and give it a name
+//  declare variables for pins
+const int servoRotationPin = 13;
+const int servoElevationPin = 12;
+Servo servoRotation;
+Servo servoElevation;
 // WEB SERVER-----------------------
-const char *ssid = "TYE-LAPTOP";
-const char *pass = "X3r3+172";
 const int pinLDR1 = A0;
 const int pinLDR2 = A1;
 const int pinLDR3 = A2;
 const int pinLDR4 = A3;
 const int pinSolar = A4;
 const int pinBattery = A5;
-const int pinServerToggle = D11;
+const int pinServerToggle = 11;
 
 signed char solarValue;
 signed char eDiff;
 signed char rDiff;
 int threshold;
 
-// MAIN----------------------------
-//  declare variables for pins
-const int servoRotationPin = D13;
-const int servoElevationPin = D12;
 // const int pinPushButton = 7;
 
 // declare variables for servo angle (position)
@@ -40,7 +37,7 @@ int avgBottom;
 int avgLeft;
 int avgRight;
 int avgSum;
-int baseAvgSum = -1;
+int baseAvgSum = 0;
 // bool recording;
 // const int numValuesToRecord = 10;
 // int recorded[numValuesToRecord];
@@ -49,10 +46,6 @@ int baseAvgSum = -1;
 // variables for measuring solar panel
 int solarReading;
 float solarVoltage;
-
-// // create servo object and give it a name
-Servo servoRotation;
-Servo servoElevation;
 
 // timing
 int timeElapsedInDarkness; // ms
@@ -63,51 +56,23 @@ long lastRecordTime;
 // const int recordEvery = recordingDuration / numValuesToRecord;
 
 bool serverModeToggled;
-const int internalDelta = 1;
+const int internalDelta = 2;
 
 bool serverStarting = false;
 bool standaloneMode = true;
 
-float getThreshold(int avgSum)
-{
-  const float thresholdValue = (avgSum * 0.4);
-  return thresholdValue;
-}
 void setup()
 {
   // WEB SERVER---------------------------
   Serial.begin(115200);
-  while (!Serial)
-    ; // wait for serial port to connect. Needed for native USB port only
 
   // MAIN---------------
 
   servoRotation.attach(servoRotationPin);
   servoElevation.attach(servoElevationPin);
-  // // set the intiial servos positions
 
-  servoRotation.write(0);
-  delay(1000);
-  servoRotation.write(90);
-  delay(1000);
-  //   servoRotation.write(180);
-  //   delay(1000);
-  //   servoRotation.write(90);
-  //   delay(1000);
-  // servoRotation.write(0);
-  //   delay(1000);
-  //   servoElevation.write(0);
-  //   delay(1000);
-  //   servoElevation.write(90);
-  //   delay(1000);
-  //   servoElevation.write(180);
-  //   delay(1000);
-  //   servoElevation.write(90);
-  //   delay(1000);
-  //   servoElevation.write(0);
-  //   delay(1000);
-  //   servoElevation.write(90);
-  //   servoRotation.write(0);
+  servoRotation.write(rotationServoPosition);
+  servoElevation.write(elevationServoPosition);
 }
 
 void initialiseServer()
@@ -125,44 +90,19 @@ void initialiseServer()
 void loop()
 {
   Serial.println();
-  Serial.print("Testing...");
+  // Serial.print("Testing...");
 
   // wait for 10s to get the base avg Sum
-  Serial.println("Looping. BaseAvgSum: ");
-  Serial.print(baseAvgSum);
+  // Serial.println("Looping. BaseAvgSum: ");
+  if (baseAvgSum == 0)
+  {
+    baseAvgSum = getMin();
+    // Serial.print(baseAvgSum);
+  }
 
-  // if (baseAvgSum == -1)
-  // {
-  //   currTime = millis();
-
-  //   if (!recording)
-  //   {
-  //     recording = true;
-  //   }
-
-  //   if (currTime - lastRecordTime >= recordEvery && remainingNumValues >= 0)
-  //   {
-  //     // if the duration is one which we should record at, record it.
-  //     recorded[numValuesToRecord - remainingNumValues] = getAverageSum();
-  //     remainingNumValues--;
-  //     lastRecordTime = currTime;
-  //   }
-
-  //   if (remainingNumValues == 0)
-  //   {
-  //     int sum = 0;
-  //     for (int i = 0; i < numValuesToRecord; i++)
-  //     {
-  //       sum += recorded[i];
-  //     }
-  //     baseAvgSum = sum / numValuesToRecord;
-  //     recording = false;
-  //   }
-  // }
-  // else
-  // {
   if (standaloneMode == 0)
   {
+    // server.handleClient();
   }
   trackerLogic();
 
@@ -172,8 +112,16 @@ void loop()
     standaloneMode = false;
     initialiseServer();
   }
-
-  // }
+  else if (!serverModeToggled && !standaloneMode)
+  {
+    standaloneMode = true;
+    // if (status == WL_CONNECTED)
+    // {
+    // server.close();
+    // Serial.println();
+    Serial.print("Closing server...");
+    // }
+  }
 
   delay(interval);
 }
@@ -181,8 +129,6 @@ void loop()
 void handlePollingData()
 {
   Serial.println("Received /data request");
-
-  JsonDocument doc;
 
   // ldr1
   const int _ldr1 = analogRead(pinLDR1); // Value of the sensor connected Option 0 pin of Mux
@@ -200,36 +146,14 @@ void handlePollingData()
   const float bPerc = (_battery + 0.5) * 8.97 / 1024.0; // max 8.97 minimum 7.5v
 }
 
-void moveToRequestedPositionSmoothly(int target_pos, int init_pos, Servo srv)
-{
-  int _p = init_pos;
-  while (_p != target_pos)
-  {
-    if (target_pos < init_pos)
-    {
-      _p = _p - internalDelta;
-      srv.write(_p);
-    }
-    else
-    {
-      _p = _p + internalDelta;
-      srv.write(_p);
-    }
-    delay(100);
-  }
-}
-
 int getAverageSum()
 {
+  updateAvgTRBL();
   avgSum = (avgTop + avgRight + avgBottom + avgLeft) / 4;
   return avgSum;
 }
-
-void trackerLogic()
+int updateAvgTRBL()
 {
-  String eAction = "";
-  String rAction = "";
-
   valueLDR1 = analogRead(pinLDR1); // aligned with top, right, bottom, left.
   valueLDR2 = analogRead(pinLDR2);
   valueLDR3 = analogRead(pinLDR3);
@@ -239,117 +163,168 @@ void trackerLogic()
   avgRight = valueLDR2;
   avgBottom = valueLDR3;
   avgLeft = valueLDR4;
+}
+void trackerLogic()
+{
+  String eAction = "";
+  String rAction = "";
 
-  // no offset
-  //  avgTop = (valueLDR1 + valueLDR2) / 2;
-  //  avgBottom = (valueLDR3 + valueLDR4) / 2;
-  //  avgLeft = (valueLDR1 + valueLDR4) / 2;
-  //  avgRight = (valueLDR2 + valueLDR3) / 2;
-  //  avgSum = (avgTop + avgBottom + avgLeft + avgRight) / 4;
+  updateAvgTRBL();
 
-  // offset
-  avgSum = (valueLDR1 + valueLDR2 + valueLDR3 + valueLDR4) / 4;
+  // //offset
+  // avgSum = (valueLDR1 + valueLDR2 + valueLDR3 + valueLDR4) / 4;
 
   eDiff = avgTop - avgBottom;
-  threshold = getThreshold(avgSum);
+  rDiff = avgRight - avgLeft;
+
+  threshold = getThreshold(baseAvgSum);
 
   if (abs(eDiff) > threshold)
   {
-    if (eDiff > 0 && elevationServoPosition)
+    if (eDiff > 0 && elevationServoPosition < 180)
     {
       // if (elevationServoPosition >= 180){
       //   elevationServoPosition =0;
       //   servoElevation.write(0);
       // }else{
-      elevationServoPosition = elevationServoPosition - internalDelta;
-      servoElevation.write(elevationServoPosition);
+      elevationServoPosition = elevationServoPosition + internalDelta;
+
       eAction = "Up";
       // }
     }
-    else if (eDiff < 0)
+    else if (eDiff < 0 && elevationServoPosition > 0)
     {
       // if (elevationServoPosition <= 0){
       //   elevationServoPosition =180;
       //   servoElevation.write(180);
       // }
-      elevationServoPosition = elevationServoPosition + internalDelta;
-      servoElevation.write(elevationServoPosition);
+      elevationServoPosition = elevationServoPosition - internalDelta;
+
       eAction = "Down";
     }
+    servoElevation.write(elevationServoPosition);
   }
 
-  rDiff = avgRight - avgLeft;
   if (abs(rDiff) > threshold)
   {
     if (rDiff > 0)
     {
-      // if (rotationServoPosition > 180){
-      //   //first reset to 0
-      //   rotationServoPosition = 0;
-      //   servoRotation.write(0);
-      // }else{
-      rotationServoPosition = rotationServoPosition + internalDelta;
-      servoRotation.write(rotationServoPosition);
-      rAction = "Left";
-      // }
-    }
-    else // if (rDiff < 0)
-    {
-      // if (rotationServoPosition <= 0){
-      //   rotationServoPosition = 180;
-      //   servoRotation.write(180);
-      // }else{
-      rotationServoPosition = rotationServoPosition - internalDelta;
-      servoRotation.write(rotationServoPosition);
-      rAction = "Right";
-      // }
-    }
-  }
 
-  // if (recording)
-  // {
-  //   Serial.println();
-  //   Serial.print("Recording, baseAvgSum: ");
-  //   Serial.print(baseAvgSum);
-  //   Serial.print(", remainingNumValues: ");
-  //   Serial.print(remainingNumValues);
-  // }
-  else
-  {
-    Serial.print("action: ");
-    Serial.print(eAction);
-    Serial.print(", ");
-    Serial.print(rAction);
-    Serial.print(", eDiff: ");
-    Serial.print(eDiff);
-    Serial.print(" , rDiff: ");
-    Serial.print(rDiff);
-    Serial.print(", threshold: ");
-    Serial.print(threshold);
-    Serial.print(", Standalone Mode: ");
-    Serial.print(standaloneMode);
-    Serial.print(", LDR1: ");
-    Serial.print(valueLDR1);
-    Serial.print(", LDR2: ");
-    Serial.print(valueLDR2);
-    Serial.print(", LDR3: ");
-    Serial.print(valueLDR3);
-    Serial.print(", LDR4: ");
-    Serial.print(valueLDR4);
-    Serial.print(", avgT: ");
-    Serial.print(avgTop);
-    Serial.print(", avgR: ");
-    Serial.print(avgRight);
-    Serial.print(", avgB: ");
-    Serial.print(avgBottom);
-    Serial.print(", avgL: ");
-    Serial.print(avgLeft);
-    Serial.print(", avgSum: ");
-    Serial.print(avgSum);
-    Serial.print(", ePos: ");
-    Serial.print(elevationServoPosition);
-    Serial.print(", rPos: ");
-    Serial.print(rotationServoPosition);
-    Serial.println();
+      // check flip condition
+      if (rotationServoPosition + internalDelta > 180)
+      {
+        Serial.print("!MOVING ROUND R");
+        //   servoRotation.write(0);
+        //   rotationServoPosition = internalDelta;
+
+        // rotate elevation servos on flip condition
+        if (elevationServoPosition < 90)
+        {
+          // elevationServoPosition = (90 - elevationServoPosition);
+          Serial.print("!MOVING ROUND E");
+        }
+        else if (elevationServoPosition > 90)
+        {
+          // elevationServoPosition = (90 - elevationServoPosition);
+          Serial.print("!MOVING ROUND E");
+        }
+      }
+      else
+      {
+        // no flip needed
+        rotationServoPosition = rotationServoPosition + internalDelta;
+      }
+
+      rAction = "Left";
+    }
+    else if (rDiff < 0)
+    {
+
+      // check flip condition
+      if (rotationServoPosition - internalDelta < 0)
+      {
+        Serial.print("!MOVING ROUND R");
+        //   servoRotation.write(0);
+        //   rotationServoPosition = 90 - internalDelta;
+
+        // rotate elevation servos on flip condition
+        if (elevationServoPosition < 90)
+        {
+          // elevationServoPosition = (90 - elevationServoPosition);
+          Serial.print("!MOVING ROUND E");
+        }
+        else if (elevationServoPosition > 90)
+        {
+          // elevationServoPosition = (90 - elevationServoPosition);
+          Serial.print("!MOVING ROUND E");
+        }
+      }
+      else
+      {
+        rotationServoPosition = rotationServoPosition - internalDelta;
+      }
+      rAction = "Right";
+    }
+
+    servoRotation.write(rotationServoPosition);
   }
+  // else
+  // {
+  Serial.print("action: ");
+  Serial.print(eAction);
+  Serial.print(", ");
+  Serial.print(rAction);
+  Serial.print(", eDiff: ");
+  Serial.print(eDiff);
+  Serial.print(" , rDiff: ");
+  Serial.print(rDiff);
+  Serial.print(", threshold: ");
+  Serial.print(threshold);
+  Serial.print(", Standalone Mode: ");
+  Serial.print(standaloneMode);
+  Serial.print(", LDR1: ");
+  Serial.print(valueLDR1);
+  Serial.print(", LDR2: ");
+  Serial.print(valueLDR2);
+  Serial.print(", LDR3: ");
+  Serial.print(valueLDR3);
+  Serial.print(", LDR4: ");
+  Serial.print(valueLDR4);
+  Serial.print(", avgT: ");
+  Serial.print(avgTop);
+  Serial.print(", avgR: ");
+  Serial.print(avgRight);
+  Serial.print(", avgB: ");
+  Serial.print(avgBottom);
+  Serial.print(", avgL: ");
+  Serial.print(avgLeft);
+  Serial.print(", baseAvgSum: ");
+  Serial.print(baseAvgSum);
+  Serial.print(", ePos: ");
+  Serial.print(elevationServoPosition);
+  Serial.print(", rPos: ");
+  Serial.print(rotationServoPosition);
+  Serial.println();
+  // }
+}
+
+float getThreshold(int baseAvgSum)
+{
+  const float thresholdValue = (baseAvgSum * 0.8) + 10;
+  return thresholdValue;
+}
+int getMin()
+{
+  int array[4] = {valueLDR1, valueLDR2, valueLDR3, valueLDR4};
+  int minIndex = 0;
+  int min = array[minIndex];
+  for (int i = 1; i < 4; i++)
+  {
+    if (array[i] < min)
+    { // What Rob wrote
+      minIndex = i;
+      min = array[i];
+    }
+  }
+  return minIndex;
 }

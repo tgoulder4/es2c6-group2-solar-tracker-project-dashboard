@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'react'
 import './App.css'
 import ConnectionDialog from './components/connectionDialog';
-import { Keyboard, Loader2 } from 'lucide-react';
+import { File, Keyboard, Loader2 } from 'lucide-react';
 import { Button } from './components/ui/button';
 import type { ReceivedData, TrackerState } from './lib/types';
 import TrackerInfo from './components/TrackerInfo';
@@ -14,7 +14,7 @@ import LDR from './components/LDR';
 import { REFRESH_TIME, TESTING_AUDRINO_IP } from './lib/constants';
 import ManualControlDialog from './components/manualControlDialog';
 import { diffThreshold } from './project_testing/diff_threshold';
-import ClockFlip from './components/Clock';
+import { mkConfig, generateCsv, download } from "export-to-csv";
 
 function App() {
   const [audrinoIP, setAudrinoIP] = useState('');
@@ -26,6 +26,27 @@ function App() {
   const [searching, setSearching] = useState(false);
   const [controlsDialogOpen, setControlsDialogOpen] = useState(false);
   const [requestedMovementInDir, setRequestedMovementInDir] = useState<{ e: -1 | 0 | 1, r: -1 | 0 | 1 }>({ e: 0, r: 0 });
+  const [cumulativeData, setCumulativeData] = useState<TrackerState[]>([]);
+
+  // mkConfig merges your options with the defaults
+  // and returns WithDefaults<ConfigOptions>
+  const csvConfig = mkConfig({ useKeysAsHeaders: true });
+
+  const mockData = [
+    {
+      name: "Rouky",
+      date: "2023-09-01",
+      percentage: 0.4,
+      quoted: '"Pickles"',
+    },
+    {
+      name: "Keiko",
+      date: "2023-09-01",
+      percentage: 0.9,
+      quoted: '"Cactus"',
+    },
+  ];
+
 
 
   console.log("avg sum: " + ts?.avgSum);
@@ -47,7 +68,13 @@ function App() {
     } = { newEPos: 0, newRPos: 0 };
 
     async function track() {
-      console.log("track called")
+      const csvBtn = document.querySelector("#csv");
+      if (csvBtn) {
+        // Converts your Array<Object> to a CsvOutput string based on the configs
+        const csv = generateCsv(csvConfig)(mockData);
+        csvBtn.addEventListener("click", () => download(csvConfig)(csv));
+      }
+      console.log("track called");
       await fetchData(audrinoIP).then((d) => {
         if (d) {
           const state = parseTrackerData(d);
@@ -218,6 +245,7 @@ function App() {
             <div className="time"></div>
             <div className="flex gap-2 mb-4">
               <Button variant={'outline'} onClick={() => { setControlsDialogOpen(true) }} className=""><Keyboard /></Button>
+              <Button variant={'outline'} id='csv' className=""><File /></Button>
               {
                 uiState !== 'Connected' ? <Button onClick={() => {
                   setConnectionDialogIsOpen(true);
