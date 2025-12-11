@@ -1,3 +1,4 @@
+import { DELTA } from "./constants";
 import type { AvgAndDiff, TrackerData, TrackerState } from "./types";
 
 export function getChanges(s: TrackerState): {
@@ -6,18 +7,20 @@ export function getChanges(s: TrackerState): {
 } {
     const { eDiff, ePos, rDiff, rPos } = s;
     let changes: { newEPos?: number, newRPos?: number } = {};
-    if (eDiff > 0 && ePos < 180) {
-        changes['newEPos'] = ePos + 5;
-    } else if (eDiff < 0 && ePos > -180) {
-        changes['newEPos'] = ePos - 5;
+    //make delta proportional to the difference between the threshold diff and the diff. 
+    //treat 90 as 0
+    if (eDiff > 0 && ePos < 180 - DELTA) {
+
+        changes['newEPos'] = ePos + DELTA;
+    } else if (eDiff < 0 && ePos >= DELTA) {
+        changes['newEPos'] = ePos - DELTA;
     }
 
-    if (rDiff > 0 && rPos < 180) {
-        changes['newRPos'] = rPos + 5;
-    } else if (rDiff < 0 && rPos > -180) {
-        changes['newRPos'] = rPos - 5;
+    if (rDiff > 0 && rPos < 180 - DELTA) {
+        changes['newRPos'] = rPos + DELTA;
+    } else if (rDiff < 0 && rPos >= DELTA) {
+        changes['newRPos'] = rPos - DELTA;
     }
-    console.log("deltas: ePos: " + ePos + ", rPos: " + rPos);
     return changes;
 }
 
@@ -38,7 +41,7 @@ export function getAveragesAndDiffs(ldrValues: TrackerData['ldrValues']): AvgAnd
     return { avgTop, avgBottom, avgLeft, avgRight, avgSum, eDiff, rDiff }
 }
 
-export async function setChanges(ip: string, changes: { newEPos?: number, newRPos?: number }) {
+export async function applyChanges(ip: string, changes: { newEPos?: number, newRPos?: number }) {
     let url = "http://" + ip + "/set";
     if (changes.newEPos) {
         url = url + '?e=' + changes.newEPos;
@@ -50,12 +53,17 @@ export async function setChanges(ip: string, changes: { newEPos?: number, newRPo
             url = url + '?r=' + changes.newRPos;
         }
     }
-    console.log("url: " + url);
-    if (changes.newEPos) {
-        const res = await fetch(url);
-        if (!res.ok) {
-            console.error("res was not OK");
-        }
+    // console.log("url: " + url);
+    // if (typeof changes.newEPos !== undefined || typeof changes.newRPos !== undefined) {
+    const res = await fetch(url, {
+        method: 'POST', headers: [
+            ["Content-Type", "application/x-www-form-urlencoded"],
+            // ["Retry-After", "2"]
+        ]
+    });
+    if (!res.ok) {
+        console.error("res was not OK");
     }
+    // }
 }
 

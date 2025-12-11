@@ -1,11 +1,4 @@
-export type TrackerData = {
-    //data received from the tracker
-    solarVoltage: number,
-    batteryPercentage: number,
-    ldrValues: number[],
-    ePos: number,
-    rPos: number,
-}
+
 
 export type ReceivedData = {
     solarV: number,
@@ -18,6 +11,7 @@ export type ReceivedData = {
     ldr2: number,
     ldr3: number,
     ldr4: number,
+    diffThresholdForThisSum: number
 }
 
 export type TrackerState = {
@@ -28,7 +22,13 @@ export type TrackerState = {
     ldrValues: number[],
     ePos: number,
     rPos: number,
-    status: "Tracking" | 'Reached Optimal Position' | 'Waiting for Sunrise...' | 'Searching for Source...'
+    avgTop: number,
+    avgRight: number,
+    avgBottom: number,
+    avgLeft: number,
+    avgSum: number,
+    diffThresholdForThisSum: number,
+    status: "Tracking" | 'Optimal' | 'Waiting for Sunrise...' | 'Searching for Source...' | 'Resetting to Sunrise Position...'
 }
 
 export type AvgAndDiff = {

@@ -9,7 +9,7 @@ type Props = {
 
 function Statistic({ value, unit, name, loading }: Props) {
     return (
-        <div className={`stat flex flex-col gap-4 ${value == 0 && 'opacity-0'}`}>
+        <div className={`stat flex flex-col gap-4`}>
             <div className="flex flex-row items-end gap-2">
                 {
                     loading ? <>

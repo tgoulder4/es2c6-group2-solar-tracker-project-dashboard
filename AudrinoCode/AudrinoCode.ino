@@ -1,207 +1,355 @@
-#include <ESP8266WiFi.h>
-#include <WiFiClient.h>
-#include <ESP8266mDNS.h>
-#include <ESP8266WebServer.h>   // Include the WebServer library
+
 #include <ArduinoJson.h>
 #include <Servo.h>
- 
-//WEB SERVER-----------------------
-const char* ssid = "TYE-LAPTOP";
-const char* password = "X3r3+172";
-const int LDRPin=A0;
+
+// HC4051 mp(12, 13, 14); //guess: GPIO
+// WEB SERVER-----------------------
+const char *ssid = "TYE-LAPTOP";
+const char *pass = "X3r3+172";
+const int pinLDR1 = A0;
+const int pinLDR2 = A1;
+const int pinLDR3 = A2;
+const int pinLDR4 = A3;
+const int pinSolar = A4;
+const int pinBattery = A5;
+const int pinServerToggle = D11;
 
 signed char solarValue;
-signed char ldr1Value = 0;
-signed char ldr2Value = 0;
-signed char ldr3Value = 0;
-signed char ldr4Value = 0;
 signed char eDiff;
 signed char rDiff;
+int threshold;
 
-//MAIN----------------------------
- // declare variables for pins
-const int pinLDR1 = D0;
-const int pinLDR2 = D1;
-const int pinLDR3 = D2;
-const int pinLDR4 = D3;
-const int pinSolar = D4;
-const int servoRotationPin = 9;
-const int servoElevationPin = 8;
-const int pinPushButton = 7;
+// MAIN----------------------------
+//  declare variables for pins
+const int servoRotationPin = D13;
+const int servoElevationPin = D12;
+// const int pinPushButton = 7;
 
 // declare variables for servo angle (position)
-int elevationServoPosition = 0;
-int rotationServoPosition = 0;
-const int sunrisePositionElevation = 90;
-const int sunrisePositionRotation = 0;
+int elevationServoPosition = 90;
+int rotationServoPosition = 90;
 
-//INITIAL VALUES
+// INITIAL VALUES
 int valueLDR1;
 int valueLDR2;
 int valueLDR3;
 int valueLDR4;
-
-const int minValueLDR = 6;
-
-int rotationDiff;
-int elevationDiff;
-int prevRotationDiff;
-int prevElevationDiff;
 
 int avgTop;
 int avgBottom;
 int avgLeft;
 int avgRight;
 int avgSum;
-
-int result;
-// margin for difference to move motor
-int threshold = 10;
-const int delta = 30;
+int baseAvgSum = -1;
+// bool recording;
+// const int numValuesToRecord = 10;
+// int recorded[numValuesToRecord];
+// int remainingNumValues = numValuesToRecord;
 
 // variables for measuring solar panel
 int solarReading;
 float solarVoltage;
 
 // // create servo object and give it a name
-// Servo servoRotation;
-// Servo servoElevation;
+Servo servoRotation;
+Servo servoElevation;
 
-//timing
-int timeElapsedInDarkness; //ms
-const int interval = 1000; //ms. Used for all time dependent fns so be careful when changing.
+// timing
+int timeElapsedInDarkness; // ms
+const int interval = 1000; // ms. Used for all time dependent fns so be careful when changing.
 int currTime;
-int trackerFnTime;
-const int resetToSunriseAfterTime = 10000; //10 seconds
-const int resetToSunriseThreshold = 10;
+long lastRecordTime;
+// const int recordingDuration = 10000; // 10 seconds
+// const int recordEvery = recordingDuration / numValuesToRecord;
 
-ESP8266WebServer server(80);
- 
-void setup() {
-  // put your setup code here, to run once:
-    // CAR_moveForward();
- 
- //WEB SERVER---------------------------
-  Serial.begin(9600);
-  delay(10);
-  // Connect to Wi-Fi
-  Serial.println('\n');
+bool serverModeToggled;
+const int internalDelta = 1;
 
-  Serial.print("Connecting...");
- 
-  WiFi.mode(WIFI_STA);
-  WiFi.begin(ssid, password);
- 
-  // Wait for connection
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(500);
-    Serial.print(".");
-  }
- 
+bool serverStarting = false;
+bool standaloneMode = true;
+
+float getThreshold(int avgSum)
+{
+  const float thresholdValue = (avgSum * 0.4);
+  return thresholdValue;
+}
+void setup()
+{
+  // WEB SERVER---------------------------
+  Serial.begin(115200);
+  while (!Serial)
+    ; // wait for serial port to connect. Needed for native USB port only
+
+  // MAIN---------------
+
+  servoRotation.attach(servoRotationPin);
+  servoElevation.attach(servoElevationPin);
+  // // set the intiial servos positions
+
+  servoRotation.write(0);
+  delay(1000);
+  servoRotation.write(90);
+  delay(1000);
+  //   servoRotation.write(180);
+  //   delay(1000);
+  //   servoRotation.write(90);
+  //   delay(1000);
+  // servoRotation.write(0);
+  //   delay(1000);
+  //   servoElevation.write(0);
+  //   delay(1000);
+  //   servoElevation.write(90);
+  //   delay(1000);
+  //   servoElevation.write(180);
+  //   delay(1000);
+  //   servoElevation.write(90);
+  //   delay(1000);
+  //   servoElevation.write(0);
+  //   delay(1000);
+  //   servoElevation.write(90);
+  //   servoRotation.write(0);
+}
+
+void initialiseServer()
+{
+  // check for the WiFi module:
+
   Serial.println("");
   Serial.println("WiFi connected");
   Serial.print("IP address: ");
-  Serial.println(WiFi.localIP());
- 
-  if (MDNS.begin("esp8266")) {              // Start the mDNS responder for esp8266.local
-    Serial.println("mDNS responder started");
-  } else {
-    Serial.println("Error setting up MDNS responder!");
-  }
-// Define HTTP endpoints
-  //data: status, ldr values, solar cell value
-  server.on("/data", HTTP_GET, handlePollingData);
- 
-  //manual search trigger was clicked
-  server.on("/search", HTTP_POST, handleSearch);
- 
-  //manual reset button was clicked
-  server.on("/manualResetToSunrise", HTTP_POST, resetToSunrise);
-  server.enableCORS(true);
 
-  server.begin();
   Serial.println();
   Serial.print("HTTP server started");
-
-  //MAIN---------------
- 
-  //   servoRotation.attach(servoRotationPin);
-  //   servoElevation.attach(servoElevationPin);
-  // //set the intiial servos positions
-  //   servoRotation.write(rotationServoPosition);      
-  //   servoElevation.write(elevationServoPosition);  
-    Serial.print("Servo positions set");
 }
- 
-void loop() {
-  //only run the tracker logic every interval milliseconds.
-  currTime = millis();
-  if (currTime - trackerFnTime >=interval){
-    // trackerLogic();
-    trackerFnTime = currTime;
-    server.handleClient();
+
+void loop()
+{
+  Serial.println();
+  Serial.print("Testing...");
+
+  // wait for 10s to get the base avg Sum
+  Serial.println("Looping. BaseAvgSum: ");
+  Serial.print(baseAvgSum);
+
+  // if (baseAvgSum == -1)
+  // {
+  //   currTime = millis();
+
+  //   if (!recording)
+  //   {
+  //     recording = true;
+  //   }
+
+  //   if (currTime - lastRecordTime >= recordEvery && remainingNumValues >= 0)
+  //   {
+  //     // if the duration is one which we should record at, record it.
+  //     recorded[numValuesToRecord - remainingNumValues] = getAverageSum();
+  //     remainingNumValues--;
+  //     lastRecordTime = currTime;
+  //   }
+
+  //   if (remainingNumValues == 0)
+  //   {
+  //     int sum = 0;
+  //     for (int i = 0; i < numValuesToRecord; i++)
+  //     {
+  //       sum += recorded[i];
+  //     }
+  //     baseAvgSum = sum / numValuesToRecord;
+  //     recording = false;
+  //   }
+  // }
+  // else
+  // {
+  if (standaloneMode == 0)
+  {
   }
-  //periodically send a post to /data
+  trackerLogic();
+
+  const bool serverModeToggled = digitalRead(pinServerToggle) == HIGH; // need this to useEffect
+  if (serverModeToggled && standaloneMode)
+  {
+    standaloneMode = false;
+    initialiseServer();
+  }
+
+  // }
+
+  delay(interval);
 }
 
-void handlePollingData(){
+void handlePollingData()
+{
   Serial.println("Received /data request");
 
   JsonDocument doc;
 
-  const int _ldr1 = analogRead(pinLDR1);
-  const int _ldr2 = analogRead(pinLDR2);
-  const int _ldr3 = analogRead(pinLDR3);
-  const int _ldr4 = analogRead(pinLDR4);
+  // ldr1
+  const int _ldr1 = analogRead(pinLDR1); // Value of the sensor connected Option 0 pin of Mux
+  // ldr1
+  const int _ldr2 = analogRead(pinLDR2); // Value of the sensor connected Option 1 pin of Mux
+  // ldr1
+  const int _ldr3 = analogRead(pinLDR3); // Value of the sensor connected Option 2 pin of Mux
+  // ldr1
+  const int _ldr4 = analogRead(pinLDR4); // Value of the sensor connected Option 3 pin of Mux
 
-  doc["ldr1"] = _ldr1;
-  doc["ldr2"] = _ldr2;
-  doc["ldr3"] = _ldr3;
-  doc["ldr4"] = _ldr4;
- 
-  doc["solarV"] = 0;
-  doc["batteryPerc"]=100;
-  doc["eDiff"] = 0;
-  doc["rDiff"] = 0;
-  doc["ePos"] = 0;
-  doc["rPos"] = 0;
+  const float sv = analogRead(pinSolar); // Value of the sensor connected Option 4 pin of Mux
+  const float solarV = (sv + 0.5) * 5 / 1024.0;
 
-  String output;
-
-  doc.shrinkToFit();  // optional
-
-  server.sendHeader("Content-Type", "application/json");
-  WiFiClient client = server.client();
-  serializeJson(doc, output);
-  Serial.println();
-  Serial.print("Returning: ");
-  Serial.print(output);
-  server.send(200,"application/json",output);
+  const float _battery = analogRead(pinBattery);        // Value of the sensor connected Option 4 pin of Mux
+  const float bPerc = (_battery + 0.5) * 8.97 / 1024.0; // max 8.97 minimum 7.5v
 }
 
-void handleSearch(){
-  Serial.println("Received /search request");
-  server.sendHeader("Content-Type", "application/xml");
-  server.send(200, "text/plain", "");
+void moveToRequestedPositionSmoothly(int target_pos, int init_pos, Servo srv)
+{
+  int _p = init_pos;
+  while (_p != target_pos)
+  {
+    if (target_pos < init_pos)
+    {
+      _p = _p - internalDelta;
+      srv.write(_p);
+    }
+    else
+    {
+      _p = _p + internalDelta;
+      srv.write(_p);
+    }
+    delay(100);
+  }
 }
 
-void handleRoot() {
-  server.send(200, "text/plain", "Hello world!");   // Send HTTP status 200 (Ok) and send some text to the browser/client
+int getAverageSum()
+{
+  avgSum = (avgTop + avgRight + avgBottom + avgLeft) / 4;
+  return avgSum;
 }
 
-void handleManualReset(){
-  Serial.println("Received /pollingData request");
-  server.send(200, "text/plain", "");
-}
+void trackerLogic()
+{
+  String eAction = "";
+  String rAction = "";
 
-void resetToSunrise(){
-  //do nothing rn
-  Serial.println("Received /reset request");
-  server.send(200, "text/plain", "");
-}
+  valueLDR1 = analogRead(pinLDR1); // aligned with top, right, bottom, left.
+  valueLDR2 = analogRead(pinLDR2);
+  valueLDR3 = analogRead(pinLDR3);
+  valueLDR4 = analogRead(pinLDR4);
 
-void handleNotFound(){
-  Serial.println();
-  Serial.print("Invalid request received - returning 404");
-  server.send(404, "text/plain", "404: Not found"); // Send HTTP status 404 (Not Found) when there's no handler for the URI in the request
+  avgTop = valueLDR1;
+  avgRight = valueLDR2;
+  avgBottom = valueLDR3;
+  avgLeft = valueLDR4;
+
+  // no offset
+  //  avgTop = (valueLDR1 + valueLDR2) / 2;
+  //  avgBottom = (valueLDR3 + valueLDR4) / 2;
+  //  avgLeft = (valueLDR1 + valueLDR4) / 2;
+  //  avgRight = (valueLDR2 + valueLDR3) / 2;
+  //  avgSum = (avgTop + avgBottom + avgLeft + avgRight) / 4;
+
+  // offset
+  avgSum = (valueLDR1 + valueLDR2 + valueLDR3 + valueLDR4) / 4;
+
+  eDiff = avgTop - avgBottom;
+  threshold = getThreshold(avgSum);
+
+  if (abs(eDiff) > threshold)
+  {
+    if (eDiff > 0 && elevationServoPosition)
+    {
+      // if (elevationServoPosition >= 180){
+      //   elevationServoPosition =0;
+      //   servoElevation.write(0);
+      // }else{
+      elevationServoPosition = elevationServoPosition - internalDelta;
+      servoElevation.write(elevationServoPosition);
+      eAction = "Up";
+      // }
+    }
+    else if (eDiff < 0)
+    {
+      // if (elevationServoPosition <= 0){
+      //   elevationServoPosition =180;
+      //   servoElevation.write(180);
+      // }
+      elevationServoPosition = elevationServoPosition + internalDelta;
+      servoElevation.write(elevationServoPosition);
+      eAction = "Down";
+    }
+  }
+
+  rDiff = avgRight - avgLeft;
+  if (abs(rDiff) > threshold)
+  {
+    if (rDiff > 0)
+    {
+      // if (rotationServoPosition > 180){
+      //   //first reset to 0
+      //   rotationServoPosition = 0;
+      //   servoRotation.write(0);
+      // }else{
+      rotationServoPosition = rotationServoPosition + internalDelta;
+      servoRotation.write(rotationServoPosition);
+      rAction = "Left";
+      // }
+    }
+    else // if (rDiff < 0)
+    {
+      // if (rotationServoPosition <= 0){
+      //   rotationServoPosition = 180;
+      //   servoRotation.write(180);
+      // }else{
+      rotationServoPosition = rotationServoPosition - internalDelta;
+      servoRotation.write(rotationServoPosition);
+      rAction = "Right";
+      // }
+    }
+  }
+
+  // if (recording)
+  // {
+  //   Serial.println();
+  //   Serial.print("Recording, baseAvgSum: ");
+  //   Serial.print(baseAvgSum);
+  //   Serial.print(", remainingNumValues: ");
+  //   Serial.print(remainingNumValues);
+  // }
+  else
+  {
+    Serial.print("action: ");
+    Serial.print(eAction);
+    Serial.print(", ");
+    Serial.print(rAction);
+    Serial.print(", eDiff: ");
+    Serial.print(eDiff);
+    Serial.print(" , rDiff: ");
+    Serial.print(rDiff);
+    Serial.print(", threshold: ");
+    Serial.print(threshold);
+    Serial.print(", Standalone Mode: ");
+    Serial.print(standaloneMode);
+    Serial.print(", LDR1: ");
+    Serial.print(valueLDR1);
+    Serial.print(", LDR2: ");
+    Serial.print(valueLDR2);
+    Serial.print(", LDR3: ");
+    Serial.print(valueLDR3);
+    Serial.print(", LDR4: ");
+    Serial.print(valueLDR4);
+    Serial.print(", avgT: ");
+    Serial.print(avgTop);
+    Serial.print(", avgR: ");
+    Serial.print(avgRight);
+    Serial.print(", avgB: ");
+    Serial.print(avgBottom);
+    Serial.print(", avgL: ");
+    Serial.print(avgLeft);
+    Serial.print(", avgSum: ");
+    Serial.print(avgSum);
+    Serial.print(", ePos: ");
+    Serial.print(elevationServoPosition);
+    Serial.print(", rPos: ");
+    Serial.print(rotationServoPosition);
+    Serial.println();
+  }
 }
